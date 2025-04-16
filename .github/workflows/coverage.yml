@@ -1,0 +1,86 @@
+name: Go CI & Coverage
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+
+jobs:
+  test:
+    name: Run Tests and Check Coverage
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: 'go.mod'
+          cache: true
+
+      - name: Verify dependencies
+        run: go mod tidy
+
+      # Опционально: Оставляем проверки
+      - name: Check formatting
+        run: diff -u <(echo -n) <(gofmt -d .)
+      - name: Vet code
+        run: go vet ./...
+      - name: Build project
+        run: go build -v ./...
+
+      # Запускаем ВСЕ тесты (включая репозитории и интеграционные, если настроено)
+      # с генерацией профиля покрытия coverage.out
+      - name: Run tests with coverage
+        env:
+          # Переменные окружения для тестов (ОСОБЕННО JWT_SECRET)
+          JWT_SECRET: ${{ secrets.JWT_TEST_SECRET }}
+          # Переменные для тестовой БД (если тесты репо/интеграции запускаются в CI)
+          # TEST_DB_HOST: localhost # Адрес БД, запущенной в CI (если есть)
+          # TEST_DB_PORT: 5432
+          # TEST_DB_USER: test_user_ci
+          # TEST_DB_PASSWORD: test_password_ci
+          # TEST_DB_NAME: pvz_test_ci
+          # TEST_DB_SSL_MODE: disable
+          LOG_LEVEL: error
+          BCRYPT_COST: 4
+          MIGRATIONS_PATH: file://migrations # Для локального запуска тестов репо/интеграции
+        run: go test -race -coverprofile=coverage.out -covermode=atomic ./...
+
+      # Загрузка отчета покрытия в Codecov
+      - name: Upload coverage reports to Codecov
+        uses: codecov/codecov-action@v4
+        # Выполняется всегда, чтобы отчет загружался даже при падении тестов или порога покрытия
+        if: always()
+        env:
+          # Используем секрет репозитория для аутентификации в Codecov
+          CODECOV_TOKEN: ${{ secrets.CODECOV_TOKEN }}
+        with:
+          # Указываем путь к файлу с отчетом покрытия
+          files: ./coverage.out
+          # Включаем подробный вывод от action для отладки
+          verbose: true
+          # Не завершать workflow с ошибкой, если загрузка в Codecov не удалась
+          fail_ci_if_error: false
+
+      # Шаги для отображения покрытия в логах и проверки порога можно оставить (опционально)
+      - name: Show total coverage in logs
+        if: always()
+        run: |
+          echo "Calculating total coverage..."
+          go tool cover -func=coverage.out | grep total: | awk '{print "Total Coverage: " $3}'
+
+      - name: Check minimum coverage (75%) in logs
+        if: always()
+        run: |
+          COVERAGE=$(go tool cover -func=coverage.out | grep total: | awk '{print $3}' | sed 's/%//')
+          echo "Current coverage: ${COVERAGE}%"
+          # Здесь можно не завершать с ошибкой, а просто вывести WARN,
+          # т.к. Codecov может предоставлять свои проверки статуса PR
+          if awk "BEGIN {exit !(${COVERAGE} >= 75.0)}"; then
+            echo "Coverage check passed (>= 75%)"
+          else
+            echo "WARNING: Coverage is below 75% (${COVERAGE}%)"
+          fi
