@@ -1,0 +1,125 @@
+services:
+  db:
+    image: postgres:alpine
+    container_name: pvz_postgres_db_dev
+    environment:
+      POSTGRES_USER: ${DB_USER}
+      POSTGRES_PASSWORD: ${DB_PASSWORD}
+      POSTGRES_DB: ${DB_NAME}
+    ports:
+      - "${DB_PORT}:5432"
+    volumes:
+      - postgres_data_dev:/var/lib/postgresql/data
+    healthcheck:
+      test: [ "CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB} -h db" ]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+      start_period: 5s
+    restart: unless-stopped
+    networks:
+      - pvz-network
+
+#  db_test:
+#    image: postgres:alpine
+#    container_name: pvz_postgres_db_test
+#    environment:
+#      POSTGRES_USER: ${TEST_DB_USER}
+#      POSTGRES_PASSWORD: ${TEST_DB_PASSWORD}
+#      POSTGRES_DB: ${TEST_DB_NAME}
+#    ports:
+#      - "${TEST_DB_PORT_HOST:-5433}:5432"
+#    volumes:
+#      - postgres_data_test:/var/lib/postgresql/data
+#    healthcheck:
+#      test: [ "CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB} -h db_test" ]
+#      interval: 5s
+#      timeout: 3s
+#      retries: 5
+#      start_period: 5s
+#    restart: unless-stopped
+#    networks:
+#      - pvz-network
+#
+#  migrate_test_db:
+#    container_name: pvz_migrate_test_job
+#    build:
+#      context: .
+#      dockerfile: Dockerfile
+#      target: builder
+#    networks:
+#      - pvz-network
+#    depends_on:
+#      db_test:
+#        condition: service_healthy
+#    environment:
+#      MIGRATE_DB_USER: ${TEST_DB_USER}
+#      MIGRATE_DB_PASSWORD: ${TEST_DB_PASSWORD}
+#      MIGRATE_DB_HOST: db_test # Хост тестовой БД внутри сети Docker
+#      MIGRATE_DB_PORT: 5432    # Внутренний порт Postgres
+#      MIGRATE_DB_NAME: ${TEST_DB_NAME}
+#      MIGRATE_DB_SSL_MODE: ${TEST_DB_SSL_MODE}
+#      MIGRATIONS_PATH: file:///app/migrations
+#    command: >
+#      sh -c '
+#        echo "Waiting a bit more for test DB just in case..."; sleep 2;
+#        echo "Running migrations for TEST database...";
+#        TEST_DATABASE_URL="postgresql://$$MIGRATE_DB_USER:$$MIGRATE_DB_PASSWORD@$$MIGRATE_DB_HOST:$$MIGRATE_DB_PORT/$$MIGRATE_DB_NAME?sslmode=$$MIGRATE_DB_SSL_MODE&x-migrations-table=schema_migrations";
+#        echo "Applying migrations to test DB: postgresql://$$MIGRATE_DB_USER:********@$$MIGRATE_DB_HOST:$$MIGRATE_DB_PORT/$$MIGRATE_DB_NAME?sslmode=$$MIGRATE_DB_SSL_MODE";
+#
+#        echo "Current directory for migrate command: $(pwd)"
+#                echo "DEBUG: Listing migrations directory (relative path)..."
+#                ls -l migrations || echo "DEBUG: migrations directory not found or empty relative to /app!"
+#                echo "DEBUG: End listing."
+#
+#        migrate -path migrations -database "$$TEST_DATABASE_URL" up
+#
+#        migrate_exit_code=$$?;
+#        if [ $$migrate_exit_code -ne 0 ]; then
+#          echo "ERROR: TEST DB Migrations failed with code $$migrate_exit_code.";
+#        else
+#          echo "TEST DB migrations applied successfully.";
+#        fi;
+#        exit $$migrate_exit_code;
+#      '
+
+  app:
+    container_name: pvz_app_service
+    build:
+      context: .
+      dockerfile: Dockerfile
+    ports:
+      - "${HTTP_PORT}:8080"
+      - "${GRPC_PORT}:3000"
+      - "${METRICS_PORT}:9000"
+    environment:
+      HTTP_PORT: ${HTTP_PORT}
+      GRPC_PORT: ${GRPC_PORT}
+      METRICS_PORT: ${METRICS_PORT}
+      DB_HOST: db
+      DB_PORT: ${DB_PORT}
+      DB_USER: ${DB_USER}
+      DB_PASSWORD: ${DB_PASSWORD}
+      DB_NAME: ${DB_NAME}
+      DB_SSL_MODE: ${DB_SSL_MODE}
+      JWT_SECRET: ${JWT_SECRET}
+      JWT_TTL_HOURS: ${JWT_TTL_HOURS}
+      LOG_LEVEL: ${LOG_LEVEL}
+      BCRYPT_COST: ${BCRYPT_COST}
+      MIGRATIONS_PATH: file:///app/migrations
+    depends_on:
+      db:
+        condition: service_healthy
+    restart: on-failure
+    networks:
+      - pvz-network
+
+volumes:
+  postgres_data_dev:
+    driver: local
+  postgres_data_test:
+    driver: local
+
+networks:
+  pvz-network:
+    driver: bridge

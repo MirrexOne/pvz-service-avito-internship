@@ -1,0 +1,19 @@
+all: True
+output: "mocks"
+outpkg: "mocks"
+keeptree: True
+with-expecter: True
+recursive: True
+packages:
+  pvz-service-avito-internship/internal/domain:
+    interfaces:
+      PVZRepository:
+      ReceptionRepository:
+      ProductRepository:
+      UserRepository:
+      AuthService:
+      PVZService:
+      ReceptionService:
+      ProductService:
+      PasswordHasher:
+      MetricsCollector:
